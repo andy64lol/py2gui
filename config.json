@@ -1,0 +1,7 @@
+{
+  "disabled_menus": ["Edit"],
+  "disabled_views": ["Demo ANSI Colors"],
+  "disabled_colors": ["31", "91", "41"],
+  "show_clear_button": false,
+  "show_demo_button": false
+}
