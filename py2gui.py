@@ -383,7 +383,8 @@ class Py2GUI:
         self.root.after(0, _update)
     
     def display_colored(self, text: str, fg_color: Optional[str] = None, bg_color: Optional[str] = None, 
-                       bold: bool = False, underline: bool = False) -> None:
+                       bold: bool = False, underline: bool = False, italic: bool = False,
+                       strikethrough: bool = False, reverse: bool = False) -> None:
         """Directly display colored text"""
         def _update():
             self.text_area.config(state=tk.NORMAL)
@@ -454,6 +455,12 @@ class Py2GUI:
                 tags.append('bold')
             if underline:
                 tags.append('underline')
+            if italic:
+                tags.append('italic')
+            if strikethrough:
+                tags.append('strikethrough')
+            if reverse:
+                tags.append('reverse')
             
             self.text_area.insert(tk.END, str(text) + "\n", tuple(tags))
             self.text_area.config(state=tk.DISABLED)
@@ -545,12 +552,6 @@ class Py2GUI:
                 
                 # Enable the input field
                 self.input_entry.config(state=tk.NORMAL)
-                
-                # Display a message indicating we're waiting for input
-                self.text_area.config(state=tk.NORMAL)
-                self.text_area.insert(tk.END, f"Waiting for input: {prompt}\n", 'default')
-                self.text_area.config(state=tk.DISABLED)
-                self.text_area.see(tk.END)
             except tk.TclError:
                 pass
         
