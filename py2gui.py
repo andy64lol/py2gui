@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import scrolledtext, simpledialog, Menu, Frame, Entry, Button, StringVar
+from tkinter import scrolledtext, simpledialog, Menu, Frame, Entry, Button, StringVar, font
 import queue
 import threading
 import traceback
@@ -22,7 +22,7 @@ class Py2GUI:
         # Load configuration
         self.config = self._load_config()
         
-        # ANSI color configuration - using hex color codes instead of names
+        # Extended ANSI color configuration with full 256 colors
         self.ansi_colors = {
             # Basic colors
             '30': '#000000',        # Black
@@ -45,7 +45,7 @@ class Py2GUI:
             '97': '#ffffff',        # Bright white
             
             # Background colors
-            '40': '#1a1a1a',        # Black background (slightly lighter than pure black)
+            '40': '#1a1a1a',        # Black background
             '41': '#ff0000',        # Red background
             '42': '#00ff00',        # Green background
             '43': '#ffff00',        # Yellow background
@@ -53,6 +53,40 @@ class Py2GUI:
             '45': '#ff00ff',        # Magenta background
             '46': '#00ffff',        # Cyan background
             '47': '#ffffff',        # White background
+            
+            # Extended 256 colors (common ones)
+            '38;5;0': '#000000',    # Black
+            '38;5;1': '#800000',    # Dark red
+            '38;5;2': '#008000',    # Dark green
+            '38;5;3': '#808000',    # Dark yellow
+            '38;5;4': '#000080',    # Dark blue
+            '38;5;5': '#800080',    # Dark magenta
+            '38;5;6': '#008080',    # Dark cyan
+            '38;5;7': '#c0c0c0',    # Light gray
+            '38;5;8': '#808080',    # Dark gray
+            '38;5;9': '#ff0000',    # Red
+            '38;5;10': '#00ff00',   # Green
+            '38;5;11': '#ffff00',   # Yellow
+            '38;5;12': '#0000ff',   # Blue
+            '38;5;13': '#ff00ff',   # Magenta
+            '38;5;14': '#00ffff',   # Cyan
+            '38;5;15': '#ffffff',   # White
+            
+            # Extended background colors
+            '48;5;0': '#000000',    # Black background
+            '48;5;1': '#800000',    # Dark red background
+            '48;5;2': '#008000',    # Dark green background
+            '48;5;3': '#808000',    # Dark yellow background
+            '48;5;4': '#000080',    # Dark blue background
+            '48;5;5': '#800080',    # Dark magenta background
+            '48;5;6': '#008080',    # Dark cyan background
+            '48;5;7': '#c0c0c0',    # Light gray background
+            
+            # True color support (RGB)
+            '38;2;0;0;0': '#000000',    # Black
+            '38;2;255;0;0': '#ff0000',  # Red
+            '38;2;0;255;0': '#00ff00',  # Green
+            '38;2;0;0;255': '#0000ff',  # Blue
         }
         
         # Color name to hex mapping for display_colored method
@@ -73,7 +107,16 @@ class Py2GUI:
             'bright magenta': '#ff80ff',
             'bright cyan': '#80ffff',
             'bright white': '#ffffff',
+            'orange': '#ff8000',
+            'purple': '#8000ff',
+            'pink': '#ff80ff',
+            'brown': '#804000',
+            'dark gray': '#404040',
+            'light gray': '#c0c0c0',
         }
+        
+        # Available fonts
+        self.available_fonts = font.families()
         
         # ANSI style configuration
         self.ansi_styles = {
@@ -132,11 +175,10 @@ class Py2GUI:
                 continue
                 
             tag_name = f"ansi_{code}"
-            if code in ['30', '31', '32', '33', '34', '35', '36', '37',
-                       '90', '91', '92', '93', '94', '95', '96', '97']:
+            if (code.startswith('3') and ';' not in code) or code.startswith('38'):
                 # Foreground colors
                 self.text_area.tag_configure(tag_name, foreground=color_hex)
-            elif code in ['40', '41', '42', '43', '44', '45', '46', '47']:
+            elif code.startswith('4') or code.startswith('48'):
                 # Background colors
                 self.text_area.tag_configure(tag_name, background=color_hex)
         
@@ -296,7 +338,7 @@ class Py2GUI:
                         reset_map = {'22': '1', '23': '3', '24': '4', '27': '7', '29': '9'}
                         if reset_map[code] in current_codes:
                             current_codes.remove(reset_map[code])
-                    elif code in self.ansi_colors:
+                    elif code in self.ansi_colors or code.startswith('38;') or code.startswith('48;'):
                         # Color codes
                         # Skip disabled colors
                         if 'disabled_colors' in self.config and code in self.config['disabled_colors']:
@@ -305,22 +347,27 @@ class Py2GUI:
                         # Remove same type of color codes
                         if code in ['30', '31', '32', '33', '34', '35', '36', '37',
                                    '90', '91', '92', '93', '94', '95', '96', '97']:
-                            # Remove other foreground colors
+                            # Remove other basic foreground colors
                             for c in list(current_codes):
                                 if c in ['30', '31', '32', '33', '34', '35', '36', '37',
                                         '90', '91', '92', '93', '94', '95', '96', '97']:
                                     current_codes.remove(c)
                         elif code in ['40', '41', '42', '43', '44', '45', '46', '47']:
-                            # Remove other background colors
+                            # Remove other basic background colors
                             for c in list(current_codes):
                                 if c in ['40', '41', '42', '43', '44', '45', '46', '47']:
                                     current_codes.remove(c)
+                        elif code.startswith('38;'):
+                            # Remove other foreground colors
+                            for c in list(current_codes):
+                                if c.startswith('38;'):
+                                    current_codes.remove(c)
+                        elif code.startswith('48;'):
+                            # Remove other background colors
+                            for c in list(current_codes):
+                                if c.startswith('48;'):
+                                    current_codes.remove(c)
                         current_codes.append(code)
-                    elif code in ['38', '48']:
-                        # 256 colors and true color (simplified, only basic colors here)
-                        pass
-            
-            last_end = match.end()
         
         # Add the last part of text
         if last_end < len(text):
@@ -345,7 +392,7 @@ class Py2GUI:
                             '7': 'reverse', '9': 'strikethrough'}
                 if code in style_map:
                     tags.append(style_map[code])
-            elif code in self.ansi_colors:
+            elif code in self.ansi_colors or code.startswith('38;') or code.startswith('48;'):
                 # Skip disabled colors
                 if 'disabled_colors' in self.config and code in self.config['disabled_colors']:
                     continue
@@ -354,10 +401,95 @@ class Py2GUI:
         
         return tags
     
-    def display(self, text: str, parse_ansi: bool = True) -> None:
-        """Thread-safe display with ANSI color support"""
+    def _process_escape_sequences(self, text: str) -> str:
+        """Process escape sequences like \n, \t, etc."""
+        # Replace common escape sequences
+        replacements = {
+            '\\n': '\n',
+            '\\t': '\t',
+            '\\r': '\r',
+            '\\b': '\b',
+            '\\f': '\f',
+            '\\v': '\v',
+            '\\\\': '\\',
+            '\\"': '"',
+            "\\'": "'"
+        }
+        
+        for esc_seq, char in replacements.items():
+            text = text.replace(esc_seq, char)
+        
+        return text
+    
+    def display_paragraph(self, text: str, parse_ansi: bool = True, font_family: Optional[str] = None, 
+                        font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
+        """Thread-safe display of paragraphs with escape sequence processing and no auto newline"""
         def _update():
             self.text_area.config(state=tk.NORMAL)
+            
+            # Process escape sequences
+            text_processed = self._process_escape_sequences(text)
+            
+            # Check for custom font settings
+            font_tags = []
+            if font_family or font_size or font_style:
+                # Create a unique tag for this font combination
+                font_family_val = font_family or "Courier"
+                font_size_val = font_size or 10
+                font_style_val = font_style or "normal"
+                font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+                
+                if font_key not in self.tag_names:
+                    self.text_area.tag_configure(font_key, font=(font_family_val, font_size_val, font_style_val))
+                    self.tag_names.add(font_key)
+                font_tags.append(font_key)
+            
+            if parse_ansi and ('\033[' in text_processed or '\x1b[' in text_processed):
+                # Parse and apply ANSI colors
+                parts = self._parse_ansi_codes(text_processed)
+                
+                for part_text, codes in parts:
+                    tags = self._get_tags_for_codes(codes)
+                    if not tags:
+                        tags = ['default']
+                    
+                    # Add font tags if specified
+                    if font_tags:
+                        tags = font_tags + tags
+                    
+                    # Insert text and apply tags
+                    self.text_area.insert(tk.END, part_text, tuple(tags))
+            else:
+                # Plain text
+                tags = ['default']
+                if font_tags:
+                    tags = font_tags
+                self.text_area.insert(tk.END, text_processed, tuple(tags))
+            
+            self.text_area.config(state=tk.DISABLED)
+            self.text_area.see(tk.END)
+        
+        self.root.after(0, _update)
+    
+    def display(self, text: str, parse_ansi: bool = True, font_family: Optional[str] = None, 
+                font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
+        """Thread-safe display with ANSI color support and font customization"""
+        def _update():
+            self.text_area.config(state=tk.NORMAL)
+            
+            # Check for custom font settings
+            font_tags = []
+            if font_family or font_size or font_style:
+                # Create a unique tag for this font combination
+                font_family_val = font_family or "Courier"
+                font_size_val = font_size or 10
+                font_style_val = font_style or "normal"
+                font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+                
+                if font_key not in self.tag_names:
+                    self.text_area.tag_configure(font_key, font=(font_family_val, font_size_val, font_style_val))
+                    self.tag_names.add(font_key)
+                font_tags.append(font_key)
             
             if parse_ansi and ('\033[' in text or '\x1b[' in text):
                 # Parse and apply ANSI colors
@@ -368,14 +500,24 @@ class Py2GUI:
                     if not tags:
                         tags = ['default']
                     
+                    # Add font tags if specified
+                    if font_tags:
+                        tags = font_tags + tags
+                    
                     # Insert text and apply tags
                     self.text_area.insert(tk.END, part_text, tuple(tags))
                 
                 # Add newline
-                self.text_area.insert(tk.END, "\n", 'default')
+                if font_tags:
+                    self.text_area.insert(tk.END, "\n", tuple(font_tags))
+                else:
+                    self.text_area.insert(tk.END, "\n", 'default')
             else:
                 # Plain text
-                self.text_area.insert(tk.END, str(text) + "\n", 'default')
+                tags = ['default']
+                if font_tags:
+                    tags = font_tags
+                self.text_area.insert(tk.END, str(text) + "\n", tuple(tags))
             
             self.text_area.config(state=tk.DISABLED)
             self.text_area.see(tk.END)
@@ -384,18 +526,20 @@ class Py2GUI:
     
     def display_colored(self, text: str, fg_color: Optional[str] = None, bg_color: Optional[str] = None, 
                        bold: bool = False, underline: bool = False, italic: bool = False,
-                       strikethrough: bool = False, reverse: bool = False) -> None:
-        """Directly display colored text"""
+                       strikethrough: bool = False, reverse: bool = False,
+                       font_family: Optional[str] = None, font_size: Optional[int] = None, 
+                       font_style: Optional[str] = None) -> None:
+        """Directly display colored text with full color and font support"""
         def _update():
             self.text_area.config(state=tk.NORMAL)
             
             tags = ['default']
             
-            # Handle foreground color
-            if fg_color is not None:
+            # Handle foreground color - FIXED: Check for empty strings
+            if fg_color is not None and fg_color != "":
                 # Check if it's a color name that needs conversion
-                if fg_color in self.color_name_to_hex:
-                    color_value = self.color_name_to_hex[fg_color]
+                if fg_color.lower() in self.color_name_to_hex:
+                    color_value = self.color_name_to_hex[fg_color.lower()]
                 elif fg_color.isdigit():
                     # It's an ANSI code
                     # Skip disabled colors
@@ -412,20 +556,34 @@ class Py2GUI:
                         if custom_fg_tag not in self.tag_names:
                             self.text_area.tag_configure(custom_fg_tag, foreground=color_value)
                             self.tag_names.add(custom_fg_tag)
-                else:
-                    # Assume it's already a hex color or valid color name
+                elif fg_color.startswith('#') and len(fg_color) in [4, 5, 7, 9]:
+                    # It's a hex color
                     color_value = fg_color
                     custom_fg_tag = f"custom_fg_{color_value}"
                     tags.append(custom_fg_tag)
                     if custom_fg_tag not in self.tag_names:
                         self.text_area.tag_configure(custom_fg_tag, foreground=color_value)
                         self.tag_names.add(custom_fg_tag)
+                elif ';' in fg_color and fg_color.startswith('38;'):
+                    # Extended ANSI color code
+                    if fg_color in self.ansi_colors:
+                        tags.append(f"ansi_{fg_color}")
+                else:
+                    # Try to use as a named color, but only if it's not empty
+                    try:
+                        if fg_color.strip():  # Check it's not just whitespace
+                            self.text_area.tag_configure(f"custom_fg_{fg_color}", foreground=fg_color)
+                            tags.append(f"custom_fg_{fg_color}")
+                            self.tag_names.add(f"custom_fg_{fg_color}")
+                    except tk.TclError:
+                        # Fall back to default
+                        pass
             
-            # Handle background color
-            if bg_color is not None:
+            # Handle background color - FIXED: Check for empty strings
+            if bg_color is not None and bg_color != "":
                 # Check if it's a color name that needs conversion
-                if bg_color in self.color_name_to_hex:
-                    color_value = self.color_name_to_hex[bg_color]
+                if bg_color.lower() in self.color_name_to_hex:
+                    color_value = self.color_name_to_hex[bg_color.lower()]
                 elif bg_color.isdigit():
                     # It's an ANSI code
                     # Skip disabled colors
@@ -442,15 +600,43 @@ class Py2GUI:
                         if custom_bg_tag not in self.tag_names:
                             self.text_area.tag_configure(custom_bg_tag, background=color_value)
                             self.tag_names.add(custom_bg_tag)
-                else:
-                    # Assume it's already a hex color or valid color name
+                elif bg_color.startswith('#') and len(bg_color) in [4, 5, 7, 9]:
+                    # It's a hex color
                     color_value = bg_color
                     custom_bg_tag = f"custom_bg_{color_value}"
                     tags.append(custom_bg_tag)
                     if custom_bg_tag not in self.tag_names:
                         self.text_area.tag_configure(custom_bg_tag, background=color_value)
                         self.tag_names.add(custom_bg_tag)
+                elif ';' in bg_color and bg_color.startswith('48;'):
+                    # Extended ANSI color code
+                    if bg_color in self.ansi_colors:
+                        tags.append(f"ansi_{bg_color}")
+                else:
+                    # Try to use as a named color, but only if it's not empty
+                    try:
+                        if bg_color.strip():  # Check it's not just whitespace
+                            self.text_area.tag_configure(f"custom_bg_{bg_color}", background=bg_color)
+                            tags.append(f"custom_bg_{bg_color}")
+                            self.tag_names.add(f"custom_bg_{bg_color}")
+                    except tk.TclError:
+                        # Fall back to default
+                        pass
             
+            # Handle font
+            if font_family or font_size or font_style:
+                # Create a unique tag for this font combination
+                font_family_val = font_family or "Courier"
+                font_size_val = font_size or 10
+                font_style_val = font_style or "normal"
+                font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+                
+                if font_key not in self.tag_names:
+                    self.text_area.tag_configure(font_key, font=(font_family_val, font_size_val, font_style_val))
+                    self.tag_names.add(font_key)
+                tags.append(font_key)
+            
+            # Handle styles
             if bold:
                 tags.append('bold')
             if underline:
@@ -481,6 +667,11 @@ class Py2GUI:
             ("\n\033[1;37mBackground Colors:\033[0m\n", True),
             ("  \033[40;37mBlack BG\033[0m  \033[41mRed BG\033[0m  \033[42mGreen BG\033[0m\n", True),
             ("  \033[43mYellow BG\033[0m  \033[44mBlue BG\033[0m  \033[45mMagenta BG\033[0m\n", True),
+            ("\n\033[1;37mExtended Colors:\033[0m\n", True),
+            ("  \033[38;5;1mDark Red\033[0m  \033[38;5;9mRed\033[0m  \033[38;5;10mGreen\033[0m  \033[38;5;12mBlue\033[0m\n", True),
+            ("  \033[48;5;1mDark Red BG\033[0m  \033[48;5;9mRed BG\033[0m\n", True),
+            ("\n\033[1;37mTrue Colors (RGB):\033[0m\n", True),
+            ("  \033[38;2;255;0;0mRed\033[0m  \033[38;2;0;255;0mGreen\033[0m  \033[38;2;0;0;255mBlue\033[0m\n", True),
             ("\n\033[1;37mText Styles:\033[0m\n", True),
             ("  \033[1mBold\033[0m  \033[3mItalic\033[0m  \033[4mUnderline\033[0m  \033[9mStrikethrough\033[0m\n", True),
             ("\n\033[1;37mCombined Styles:\033[0m\n", True),
@@ -672,6 +863,7 @@ _gui_instance = Py2GUI()
 
 display = _gui_instance.display
 display_colored = _gui_instance.display_colored
+display_paragraph = _gui_instance.display_paragraph
 user_write = _gui_instance.user_write
 user_type_in = _gui_instance.user_type_in
 clear = _gui_instance.clear
