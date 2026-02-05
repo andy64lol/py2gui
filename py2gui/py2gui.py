@@ -1,3 +1,7 @@
+"""
+Py2GUI - Enhanced Python Terminal-style GUI
+Fixed version: Fixed potential errors and issues
+"""
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, Menu, Frame, Entry, Button, StringVar, font
 import queue
@@ -6,11 +10,14 @@ import traceback
 import re
 import json
 import os
-from typing import Callable, Any, Optional, List, Tuple, Dict
+import sys
+from typing import Callable, Any, Optional, List, Tuple, Dict, Set
+import warnings
 
 
 class Py2GUI:
     def __init__(self, title: str = "Py2GUI", width: int = 80, height: int = 20, config_file: str = "config.json"):
+        """Initialize Py2GUI instance"""
         self.root = tk.Tk()
         self.root.title(title)
         self.root.resizable(True, True)
@@ -22,7 +29,7 @@ class Py2GUI:
         # Load configuration
         self.config = self._load_config()
         
-        # Extended ANSI color configuration with full 256 colors
+        # Extended ANSI color configuration
         self.ansi_colors = {
             # Basic colors
             '30': '#000000',        # Black
@@ -54,7 +61,7 @@ class Py2GUI:
             '46': '#00ffff',        # Cyan background
             '47': '#ffffff',        # White background
             
-            # Extended 256 colors (common ones)
+            # Extended 256 colors
             '38;5;0': '#000000',    # Black
             '38;5;1': '#800000',    # Dark red
             '38;5;2': '#008000',    # Dark green
@@ -82,14 +89,14 @@ class Py2GUI:
             '48;5;6': '#008080',    # Dark cyan background
             '48;5;7': '#c0c0c0',    # Light gray background
             
-            # True color support (RGB)
+            # True Color support
             '38;2;0;0;0': '#000000',    # Black
             '38;2;255;0;0': '#ff0000',  # Red
             '38;2;0;255;0': '#00ff00',  # Green
             '38;2;0;0;255': '#0000ff',  # Blue
         }
         
-        # Color name to hex mapping for display_colored method
+        # Color name to hex mapping
         self.color_name_to_hex = {
             'black': '#000000',
             'red': '#ff0000',
@@ -116,17 +123,11 @@ class Py2GUI:
         }
         
         # Available fonts
-        self.available_fonts = font.families()
-        
-        # ANSI style configuration
-        self.ansi_styles = {
-            '0': {'font': ('Courier', 10, 'normal'), 'fg': 'white', 'bg': 'black'},  # Reset
-            '1': {'font': ('Courier', 10, 'bold')},    # Bold
-            '3': {'font': ('Courier', 10, 'italic')},  # Italic
-            '4': {'underline': True},                  # Underline
-            '7': {'fg': 'black', 'bg': 'white'},       # Reverse video
-            '9': {'strikethrough': True},             # Strikethrough
-        }
+        try:
+            self.available_fonts = font.families()
+        except Exception:
+            self.available_fonts = ["Courier", "Consolas", "Monaco", "Menlo"]
+            warnings.warn(f"Could not load font families, using fallback fonts: {self.available_fonts}")
         
         # Current text style state
         self.current_style = {
@@ -138,12 +139,12 @@ class Py2GUI:
         }
         
         # Defined text tags
-        self.tag_names = set()
+        self.tag_names: Set[str] = set()
         
-        # Handle window closure
+        # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self.exit)
         
-        # Main frame to hold everything
+        # Main frame
         self.main_frame = Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
@@ -168,7 +169,7 @@ class Py2GUI:
             background="black"
         )
         
-        # Configure color tags with hex color codes (excluding disabled colors)
+        # Configure color tags
         for code, color_hex in self.ansi_colors.items():
             # Skip disabled colors
             if 'disabled_colors' in self.config and code in self.config['disabled_colors']:
@@ -176,11 +177,12 @@ class Py2GUI:
                 
             tag_name = f"ansi_{code}"
             if (code.startswith('3') and ';' not in code) or code.startswith('38'):
-                # Foreground colors
+                # Foreground color
                 self.text_area.tag_configure(tag_name, foreground=color_hex)
             elif code.startswith('4') or code.startswith('48'):
-                # Background colors
+                # Background color
                 self.text_area.tag_configure(tag_name, background=color_hex)
+            self.tag_names.add(tag_name)
         
         # Configure style tags
         self.text_area.tag_configure("bold", font=("Courier", 10, "bold"))
@@ -189,7 +191,11 @@ class Py2GUI:
         self.text_area.tag_configure("strikethrough", overstrike=True)
         self.text_area.tag_configure("reverse", foreground="black", background="white")
         
-        # Terminal-style input area frame
+        # Add style tags to tag set
+        for tag in ["bold", "italic", "underline", "strikethrough", "reverse"]:
+            self.tag_names.add(tag)
+        
+        # Terminal style input area frame
         self.input_frame = Frame(self.main_frame)
         self.input_frame.pack(fill=tk.X, padx=5, pady=5)
         
@@ -197,7 +203,7 @@ class Py2GUI:
         self.input_label = tk.Label(self.input_frame, text=">> ", font=("Courier", 10), fg="white", bg="black")
         self.input_label.pack(side=tk.LEFT, padx=(0, 5))
         
-        # Terminal-style input entry
+        # Terminal style input field
         self.input_var = StringVar()
         self.input_entry = Entry(
             self.input_frame,
@@ -218,19 +224,17 @@ class Py2GUI:
         )
         self.send_button.pack(side=tk.LEFT)
         
-        # Input queue for user_write
+        # Input queues
         self.input_queue = queue.Queue()
-        
-        # Input queue for user_type_in
         self.type_in_queue = queue.Queue()
         
-        # Bind Enter key to send input
+        # Bind Enter key
         self.input_entry.bind('<Return>', self._on_enter_pressed)
         
-        # Menus
+        # Create menus
         self._setup_menus()
     
-    def _load_config(self) -> Dict:
+    def _load_config(self) -> Dict[str, Any]:
         """Load configuration from JSON file"""
         default_config = {
             "disabled_menus": [],
@@ -242,19 +246,29 @@ class Py2GUI:
         
         try:
             if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     # Merge with default config
                     for key, value in default_config.items():
                         if key not in config:
                             config[key] = value
                     return config
+        except (json.JSONDecodeError, IOError, OSError) as e:
+            self._safe_print(f"Error loading config file: {e}")
         except Exception as e:
-            print(f"Error loading config file: {e}")
+            self._safe_print(f"Unexpected error loading config: {e}")
         
         return default_config
     
+    def _safe_print(self, message: str) -> None:
+        """Safely print message (for initialization and error handling)"""
+        try:
+            print(message, file=sys.stderr)
+        except Exception:
+            pass  # Ignore print errors
+    
     def _setup_menus(self) -> None:
+        """Set up menu system"""
         menubar = Menu(self.root)
         self.root.config(menu=menubar)
         
@@ -276,7 +290,6 @@ class Py2GUI:
             view_menu = Menu(menubar, tearoff=0)
             menubar.add_cascade(label="View", menu=view_menu)
             
-            # Add view menu items based on configuration
             if 'disabled_views' not in self.config or 'Focus Input' not in self.config['disabled_views']:
                 view_menu.add_command(label="Focus Input", command=self.focus_input)
             
@@ -297,12 +310,12 @@ class Py2GUI:
     
     def _parse_ansi_codes(self, text: str) -> List[Tuple[str, List[str]]]:
         """Parse ANSI escape sequences in text"""
-        # ANSI escape sequence regex
-        ansi_pattern = re.compile(r'(\033\[[\d;]*m)')
+        # ANSI escape sequence regex pattern
+        ansi_pattern = re.compile(r'(\x1b\[[\d;]*m)')
         
         parts = []
         last_end = 0
-        current_codes = []
+        current_codes: List[str] = []
         
         for match in ansi_pattern.finditer(text):
             # Add normal text
@@ -313,7 +326,7 @@ class Py2GUI:
             
             # Parse ANSI code
             ansi_code = match.group(0)
-            code_str = ansi_code[2:-1]  # Remove \033[ and m
+            code_str = ansi_code[2:-1]  # Remove \x1b[ and m
             
             if code_str == '':
                 # Reset all attributes
@@ -326,10 +339,7 @@ class Py2GUI:
                         current_codes = ['0']
                     elif code in ['1', '3', '4', '7', '9']:
                         # Style codes
-                        if code in current_codes:
-                            # Remove duplicate style codes
-                            pass
-                        else:
+                        if code not in current_codes:
                             if code == '1' and '22' in current_codes:
                                 current_codes.remove('22')
                             current_codes.append(code)
@@ -340,11 +350,10 @@ class Py2GUI:
                             current_codes.remove(reset_map[code])
                     elif code in self.ansi_colors or code.startswith('38;') or code.startswith('48;'):
                         # Color codes
-                        # Skip disabled colors
                         if 'disabled_colors' in self.config and code in self.config['disabled_colors']:
                             continue
                             
-                        # Remove same type of color codes
+                        # Remove same type color codes
                         if code in ['30', '31', '32', '33', '34', '35', '36', '37',
                                    '90', '91', '92', '93', '94', '95', '96', '97']:
                             # Remove other basic foreground colors
@@ -369,7 +378,7 @@ class Py2GUI:
                                     current_codes.remove(c)
                         current_codes.append(code)
         
-        # Add the last part of text
+        # Add remaining text
         if last_end < len(text):
             remaining_text = text[last_end:]
             if remaining_text:
@@ -397,9 +406,11 @@ class Py2GUI:
                 if 'disabled_colors' in self.config and code in self.config['disabled_colors']:
                     continue
                 # Color tags
-                tags.append(f"ansi_{code}")
+                tag_name = f"ansi_{code}"
+                if tag_name in self.tag_names:
+                    tags.append(tag_name)
         
-        return tags
+        return tags if tags else ['default']
     
     def _process_escape_sequences(self, text: str) -> str:
         """Process escape sequences like \n, \t, etc."""
@@ -422,261 +433,271 @@ class Py2GUI:
         return text
     
     def display_paragraph(self, text: str, parse_ansi: bool = True, font_family: Optional[str] = None, 
-                        font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
-        """Thread-safe display of paragraphs with escape sequence processing and no auto newline"""
+                         font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
+        """Thread-safe display paragraph (no auto newline)"""
         def _update():
-            self.text_area.config(state=tk.NORMAL)
-            
-            # Process escape sequences
-            text_processed = self._process_escape_sequences(text)
-            
-            # Check for custom font settings
-            font_tags = []
-            if font_family or font_size or font_style:
-                # Create a unique tag for this font combination
-                font_family_val = font_family or "Courier"
-                font_size_val = font_size or 10
-                font_style_val = font_style or "normal"
-                font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+            try:
+                self.text_area.config(state=tk.NORMAL)
                 
-                if font_key not in self.tag_names:
-                    self.text_area.tag_configure(font_key, font=(font_family_val, font_size_val, font_style_val))
-                    self.tag_names.add(font_key)
-                font_tags.append(font_key)
-            
-            if parse_ansi and ('\033[' in text_processed or '\x1b[' in text_processed):
-                # Parse and apply ANSI colors
-                parts = self._parse_ansi_codes(text_processed)
+                # Process escape sequences
+                text_processed = self._process_escape_sequences(text)
                 
-                for part_text, codes in parts:
-                    tags = self._get_tags_for_codes(codes)
-                    if not tags:
-                        tags = ['default']
+                # Check custom font settings
+                font_tags = []
+                if font_family or font_size or font_style:
+                    # Create unique tag for font combination
+                    font_family_val = font_family or "Courier"
+                    font_size_val = font_size or 10
+                    font_style_val = font_style or "normal"
+                    font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
                     
-                    # Add font tags if specified
+                    if font_key not in self.tag_names:
+                        self.text_area.tag_configure(font_key, 
+                                                     font=(font_family_val, font_size_val, font_style_val))
+                        self.tag_names.add(font_key)
+                    font_tags.append(font_key)
+                
+                if parse_ansi and ('\x1b[' in text_processed or '\033[' in text_processed):
+                    # Parse and apply ANSI colors
+                    parts = self._parse_ansi_codes(text_processed)
+                    
+                    for part_text, codes in parts:
+                        tags = self._get_tags_for_codes(codes)
+                        
+                        # Add font tags (if specified)
+                        if font_tags:
+                            tags = font_tags + tags
+                        
+                        # Insert text and apply tags
+                        self.text_area.insert(tk.END, part_text, tuple(tags))
+                else:
+                    # Normal text
+                    tags = ['default']
                     if font_tags:
-                        tags = font_tags + tags
-                    
-                    # Insert text and apply tags
-                    self.text_area.insert(tk.END, part_text, tuple(tags))
-            else:
-                # Plain text
-                tags = ['default']
-                if font_tags:
-                    tags = font_tags
-                self.text_area.insert(tk.END, text_processed, tuple(tags))
-            
-            self.text_area.config(state=tk.DISABLED)
-            self.text_area.see(tk.END)
+                        tags = font_tags
+                    self.text_area.insert(tk.END, text_processed, tuple(tags))
+                
+                self.text_area.config(state=tk.DISABLED)
+                self.text_area.see(tk.END)
+            except tk.TclError as e:
+                if self.running:
+                    self._safe_print(f"Tkinter error in display_paragraph: {e}")
+            except Exception as e:
+                if self.running:
+                    self._safe_print(f"Error in display_paragraph: {e}")
         
-        self.root.after(0, _update)
+        if self.running:
+            self.root.after(0, _update)
     
     def display(self, text: str, parse_ansi: bool = True, font_family: Optional[str] = None, 
-                font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
-        """Thread-safe display with ANSI color support and font customization"""
+               font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
+        """Thread-safe display text (auto newline)"""
         def _update():
-            self.text_area.config(state=tk.NORMAL)
-            
-            # Check for custom font settings
-            font_tags = []
-            if font_family or font_size or font_style:
-                # Create a unique tag for this font combination
-                font_family_val = font_family or "Courier"
-                font_size_val = font_size or 10
-                font_style_val = font_style or "normal"
-                font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+            try:
+                self.text_area.config(state=tk.NORMAL)
                 
-                if font_key not in self.tag_names:
-                    self.text_area.tag_configure(font_key, font=(font_family_val, font_size_val, font_style_val))
-                    self.tag_names.add(font_key)
-                font_tags.append(font_key)
-            
-            if parse_ansi and ('\033[' in text or '\x1b[' in text):
-                # Parse and apply ANSI colors
-                parts = self._parse_ansi_codes(text)
-                
-                for part_text, codes in parts:
-                    tags = self._get_tags_for_codes(codes)
-                    if not tags:
-                        tags = ['default']
+                # Check custom font settings
+                font_tags = []
+                if font_family or font_size or font_style:
+                    # Create unique tag for font combination
+                    font_family_val = font_family or "Courier"
+                    font_size_val = font_size or 10
+                    font_style_val = font_style or "normal"
+                    font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
                     
-                    # Add font tags if specified
+                    if font_key not in self.tag_names:
+                        self.text_area.tag_configure(font_key, 
+                                                     font=(font_family_val, font_size_val, font_style_val))
+                        self.tag_names.add(font_key)
+                    font_tags.append(font_key)
+                
+                if parse_ansi and ('\x1b[' in str(text) or '\033[' in str(text)):
+                    # Parse and apply ANSI colors
+                    parts = self._parse_ansi_codes(str(text))
+                    
+                    for part_text, codes in parts:
+                        tags = self._get_tags_for_codes(codes)
+                        
+                        # Add font tags (if specified)
+                        if font_tags:
+                            tags = font_tags + tags
+                        
+                        # Insert text and apply tags
+                        self.text_area.insert(tk.END, part_text, tuple(tags))
+                    
+                    # Add newline
                     if font_tags:
-                        tags = font_tags + tags
-                    
-                    # Insert text and apply tags
-                    self.text_area.insert(tk.END, part_text, tuple(tags))
-                
-                # Add newline
-                if font_tags:
-                    self.text_area.insert(tk.END, "\n", tuple(font_tags))
+                        self.text_area.insert(tk.END, "\n", tuple(font_tags))
+                    else:
+                        self.text_area.insert(tk.END, "\n", 'default')
                 else:
-                    self.text_area.insert(tk.END, "\n", 'default')
-            else:
-                # Plain text
-                tags = ['default']
-                if font_tags:
-                    tags = font_tags
-                self.text_area.insert(tk.END, str(text) + "\n", tuple(tags))
-            
-            self.text_area.config(state=tk.DISABLED)
-            self.text_area.see(tk.END)
+                    # Normal text
+                    tags = ['default']
+                    if font_tags:
+                        tags = font_tags
+                    self.text_area.insert(tk.END, str(text) + "\n", tuple(tags))
+                
+                self.text_area.config(state=tk.DISABLED)
+                self.text_area.see(tk.END)
+            except tk.TclError as e:
+                if self.running:
+                    self._safe_print(f"Tkinter error in display: {e}")
+            except Exception as e:
+                if self.running:
+                    self._safe_print(f"Error in display: {e}")
         
-        self.root.after(0, _update)
+        if self.running:
+            self.root.after(0, _update)
     
     def display_colored(self, text: str, fg_color: Optional[str] = None, bg_color: Optional[str] = None, 
                        bold: bool = False, underline: bool = False, italic: bool = False,
                        strikethrough: bool = False, reverse: bool = False,
                        font_family: Optional[str] = None, font_size: Optional[int] = None, 
                        font_style: Optional[str] = None) -> None:
-        """Directly display colored text with full color and font support"""
+        """Directly display colored text"""
         def _update():
-            self.text_area.config(state=tk.NORMAL)
-            
-            tags = ['default']
-            
-            # Handle foreground color - FIXED: Check for empty strings
-            if fg_color is not None and fg_color != "":
-                # Check if it's a color name that needs conversion
-                if fg_color.lower() in self.color_name_to_hex:
-                    color_value = self.color_name_to_hex[fg_color.lower()]
-                elif fg_color.isdigit():
-                    # It's an ANSI code
-                    # Skip disabled colors
-                    if 'disabled_colors' in self.config and fg_color in self.config['disabled_colors']:
-                        # Use default color for disabled colors
-                        pass
-                    elif fg_color in self.ansi_colors:
-                        tags.append(f"ansi_{fg_color}")
-                    else:
-                        # Default to white if unknown ANSI code
-                        color_value = '#ffffff'
+            try:
+                self.text_area.config(state=tk.NORMAL)
+                
+                tags = ['default']
+                
+                # Process foreground color
+                if fg_color is not None and fg_color != "":
+                    fg_color_lower = fg_color.lower()
+                    if fg_color_lower in self.color_name_to_hex:
+                        color_value = self.color_name_to_hex[fg_color_lower]
                         custom_fg_tag = f"custom_fg_{color_value}"
                         tags.append(custom_fg_tag)
                         if custom_fg_tag not in self.tag_names:
                             self.text_area.tag_configure(custom_fg_tag, foreground=color_value)
                             self.tag_names.add(custom_fg_tag)
-                elif fg_color.startswith('#') and len(fg_color) in [4, 5, 7, 9]:
-                    # It's a hex color
-                    color_value = fg_color
-                    custom_fg_tag = f"custom_fg_{color_value}"
-                    tags.append(custom_fg_tag)
-                    if custom_fg_tag not in self.tag_names:
-                        self.text_area.tag_configure(custom_fg_tag, foreground=color_value)
-                        self.tag_names.add(custom_fg_tag)
-                elif ';' in fg_color and fg_color.startswith('38;'):
-                    # Extended ANSI color code
-                    if fg_color in self.ansi_colors:
-                        tags.append(f"ansi_{fg_color}")
-                else:
-                    # Try to use as a named color, but only if it's not empty
-                    try:
-                        if fg_color.strip():  # Check it's not just whitespace
-                            self.text_area.tag_configure(f"custom_fg_{fg_color}", foreground=fg_color)
-                            tags.append(f"custom_fg_{fg_color}")
-                            self.tag_names.add(f"custom_fg_{fg_color}")
-                    except tk.TclError:
-                        # Fall back to default
-                        pass
-            
-            # Handle background color - FIXED: Check for empty strings
-            if bg_color is not None and bg_color != "":
-                # Check if it's a color name that needs conversion
-                if bg_color.lower() in self.color_name_to_hex:
-                    color_value = self.color_name_to_hex[bg_color.lower()]
-                elif bg_color.isdigit():
-                    # It's an ANSI code
-                    # Skip disabled colors
-                    if 'disabled_colors' in self.config and bg_color in self.config['disabled_colors']:
-                        # Use default color for disabled colors
-                        pass
-                    elif bg_color in self.ansi_colors:
-                        tags.append(f"ansi_{bg_color}")
+                    elif fg_color.isdigit():
+                        # ANSI code
+                        if ('disabled_colors' not in self.config or 
+                            fg_color not in self.config.get('disabled_colors', [])):
+                            if fg_color in self.ansi_colors:
+                                tags.append(f"ansi_{fg_color}")
+                    elif fg_color.startswith('#') and len(fg_color) in [4, 5, 7, 9]:
+                        # Hex color
+                        color_value = fg_color
+                        custom_fg_tag = f"custom_fg_{color_value}"
+                        tags.append(custom_fg_tag)
+                        if custom_fg_tag not in self.tag_names:
+                            self.text_area.tag_configure(custom_fg_tag, foreground=color_value)
+                            self.tag_names.add(custom_fg_tag)
+                    elif ';' in fg_color and fg_color.startswith('38;'):
+                        # Extended ANSI color codes
+                        if fg_color in self.ansi_colors:
+                            tags.append(f"ansi_{fg_color}")
                     else:
-                        # Default to black if unknown ANSI code
-                        color_value = '#000000'
+                        # Try named color
+                        try:
+                            if fg_color.strip():
+                                self.text_area.tag_configure(f"custom_fg_{fg_color}", foreground=fg_color)
+                                tags.append(f"custom_fg_{fg_color}")
+                                self.tag_names.add(f"custom_fg_{fg_color}")
+                        except tk.TclError:
+                            pass
+                
+                # Process background color
+                if bg_color is not None and bg_color != "":
+                    bg_color_lower = bg_color.lower()
+                    if bg_color_lower in self.color_name_to_hex:
+                        color_value = self.color_name_to_hex[bg_color_lower]
                         custom_bg_tag = f"custom_bg_{color_value}"
                         tags.append(custom_bg_tag)
                         if custom_bg_tag not in self.tag_names:
                             self.text_area.tag_configure(custom_bg_tag, background=color_value)
                             self.tag_names.add(custom_bg_tag)
-                elif bg_color.startswith('#') and len(bg_color) in [4, 5, 7, 9]:
-                    # It's a hex color
-                    color_value = bg_color
-                    custom_bg_tag = f"custom_bg_{color_value}"
-                    tags.append(custom_bg_tag)
-                    if custom_bg_tag not in self.tag_names:
-                        self.text_area.tag_configure(custom_bg_tag, background=color_value)
-                        self.tag_names.add(custom_bg_tag)
-                elif ';' in bg_color and bg_color.startswith('48;'):
-                    # Extended ANSI color code
-                    if bg_color in self.ansi_colors:
-                        tags.append(f"ansi_{bg_color}")
-                else:
-                    # Try to use as a named color, but only if it's not empty
-                    try:
-                        if bg_color.strip():  # Check it's not just whitespace
-                            self.text_area.tag_configure(f"custom_bg_{bg_color}", background=bg_color)
-                            tags.append(f"custom_bg_{bg_color}")
-                            self.tag_names.add(f"custom_bg_{bg_color}")
-                    except tk.TclError:
-                        # Fall back to default
-                        pass
-            
-            # Handle font
-            if font_family or font_size or font_style:
-                # Create a unique tag for this font combination
-                font_family_val = font_family or "Courier"
-                font_size_val = font_size or 10
-                font_style_val = font_style or "normal"
-                font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+                    elif bg_color.isdigit():
+                        # ANSI code
+                        if ('disabled_colors' not in self.config or 
+                            bg_color not in self.config.get('disabled_colors', [])):
+                            if bg_color in self.ansi_colors:
+                                tags.append(f"ansi_{bg_color}")
+                    elif bg_color.startswith('#') and len(bg_color) in [4, 5, 7, 9]:
+                        # Hex color
+                        color_value = bg_color
+                        custom_bg_tag = f"custom_bg_{color_value}"
+                        tags.append(custom_bg_tag)
+                        if custom_bg_tag not in self.tag_names:
+                            self.text_area.tag_configure(custom_bg_tag, background=color_value)
+                            self.tag_names.add(custom_bg_tag)
+                    elif ';' in bg_color and bg_color.startswith('48;'):
+                        # Extended ANSI color codes
+                        if bg_color in self.ansi_colors:
+                            tags.append(f"ansi_{bg_color}")
+                    else:
+                        # Try named color
+                        try:
+                            if bg_color.strip():
+                                self.text_area.tag_configure(f"custom_bg_{bg_color}", background=bg_color)
+                                tags.append(f"custom_bg_{bg_color}")
+                                self.tag_names.add(f"custom_bg_{bg_color}")
+                        except tk.TclError:
+                            pass
                 
-                if font_key not in self.tag_names:
-                    self.text_area.tag_configure(font_key, font=(font_family_val, font_size_val, font_style_val))
-                    self.tag_names.add(font_key)
-                tags.append(font_key)
-            
-            # Handle styles
-            if bold:
-                tags.append('bold')
-            if underline:
-                tags.append('underline')
-            if italic:
-                tags.append('italic')
-            if strikethrough:
-                tags.append('strikethrough')
-            if reverse:
-                tags.append('reverse')
-            
-            self.text_area.insert(tk.END, str(text) + "\n", tuple(tags))
-            self.text_area.config(state=tk.DISABLED)
-            self.text_area.see(tk.END)
+                # Process font
+                if font_family or font_size or font_style:
+                    font_family_val = font_family or "Courier"
+                    font_size_val = font_size or 10
+                    font_style_val = font_style or "normal"
+                    font_key = f"font_{font_family_val}_{font_size_val}_{font_style_val}"
+                    
+                    if font_key not in self.tag_names:
+                        self.text_area.tag_configure(font_key, 
+                                                     font=(font_family_val, font_size_val, font_style_val))
+                        self.tag_names.add(font_key)
+                    tags.append(font_key)
+                
+                # Process styles
+                if bold:
+                    tags.append('bold')
+                if underline:
+                    tags.append('underline')
+                if italic:
+                    tags.append('italic')
+                if strikethrough:
+                    tags.append('strikethrough')
+                if reverse:
+                    tags.append('reverse')
+                
+                self.text_area.insert(tk.END, str(text) + "\n", tuple(tags))
+                self.text_area.config(state=tk.DISABLED)
+                self.text_area.see(tk.END)
+            except tk.TclError as e:
+                if self.running:
+                    self._safe_print(f"Tkinter error in display_colored: {e}")
+            except Exception as e:
+                if self.running:
+                    self._safe_print(f"Error in display_colored: {e}")
         
-        self.root.after(0, _update)
+        if self.running:
+            self.root.after(0, _update)
     
     def _demo_colors(self) -> None:
         """Display ANSI color demo"""
         demo_texts = [
-            ("\033[1mANSI Color Demo\033[0m\n", False),  # Don't parse ANSI
-            ("\033[1;37mBasic Colors:\033[0m\n", True),
-            ("  \033[30mBlack\033[0m  \033[31mRed\033[0m  \033[32mGreen\033[0m  \033[33mYellow\033[0m\n", True),
-            ("  \033[34mBlue\033[0m  \033[35mMagenta\033[0m  \033[36mCyan\033[0m  \033[37mWhite\033[0m\n", True),
-            ("\n\033[1;37mBright Colors:\033[0m\n", True),
-            ("  \033[90mGray\033[0m  \033[91mBright Red\033[0m  \033[92mBright Green\033[0m\n", True),
-            ("  \033[93mBright Yellow\033[0m  \033[94mBright Blue\033[0m  \033[95mBright Magenta\033[0m\n", True),
-            ("\n\033[1;37mBackground Colors:\033[0m\n", True),
-            ("  \033[40;37mBlack BG\033[0m  \033[41mRed BG\033[0m  \033[42mGreen BG\033[0m\n", True),
-            ("  \033[43mYellow BG\033[0m  \033[44mBlue BG\033[0m  \033[45mMagenta BG\033[0m\n", True),
-            ("\n\033[1;37mExtended Colors:\033[0m\n", True),
-            ("  \033[38;5;1mDark Red\033[0m  \033[38;5;9mRed\033[0m  \033[38;5;10mGreen\033[0m  \033[38;5;12mBlue\033[0m\n", True),
-            ("  \033[48;5;1mDark Red BG\033[0m  \033[48;5;9mRed BG\033[0m\n", True),
-            ("\n\033[1;37mTrue Colors (RGB):\033[0m\n", True),
-            ("  \033[38;2;255;0;0mRed\033[0m  \033[38;2;0;255;0mGreen\033[0m  \033[38;2;0;0;255mBlue\033[0m\n", True),
-            ("\n\033[1;37mText Styles:\033[0m\n", True),
-            ("  \033[1mBold\033[0m  \033[3mItalic\033[0m  \033[4mUnderline\033[0m  \033[9mStrikethrough\033[0m\n", True),
-            ("\n\033[1;37mCombined Styles:\033[0m\n", True),
-            ("  \033[1;31mBold Red\033[0m  \033[1;4;32mBold Underlined Green\033[0m\n", True),
-            ("  \033[1;33;44mBold Yellow on Blue\033[0m  \033[1;37;41mBold White on Red\033[0m\n", True),
+            ("\x1b[1mANSI Color Demo\x1b[0m\n", False),
+            ("\x1b[1;37mBasic Colors:\x1b[0m\n", True),
+            ("  \x1b[30mBlack\x1b[0m  \x1b[31mRed\x1b[0m  \x1b[32mGreen\x1b[0m  \x1b[33mYellow\x1b[0m\n", True),
+            ("  \x1b[34mBlue\x1b[0m  \x1b[35mMagenta\x1b[0m  \x1b[36mCyan\x1b[0m  \x1b[37mWhite\x1b[0m\n", True),
+            ("\n\x1b[1;37mBright Colors:\x1b[0m\n", True),
+            ("  \x1b[90mGray\x1b[0m  \x1b[91mBright Red\x1b[0m  \x1b[92mBright Green\x1b[0m\n", True),
+            ("  \x1b[93mBright Yellow\x1b[0m  \x1b[94mBright Blue\x1b[0m  \x1b[95mBright Magenta\x1b[0m\n", True),
+            ("\n\x1b[1;37mBackground Colors:\x1b[0m\n", True),
+            ("  \x1b[40;37mBlack BG\x1b[0m  \x1b[41mRed BG\x1b[0m  \x1b[42mGreen BG\x1b[0m\n", True),
+            ("  \x1b[43mYellow BG\x1b[0m  \x1b[44mBlue BG\x1b[0m  \x1b[45mMagenta BG\x1b[0m\n", True),
+            ("\n\x1b[1;37mExtended Colors:\x1b[0m\n", True),
+            ("  \x1b[38;5;1mDark Red\x1b[0m  \x1b[38;5;9mRed\x1b[0m  \x1b[38;5;10mGreen\x1b[0m  \x1b[38;5;12mBlue\x1b[0m\n", True),
+            ("  \x1b[48;5;1mDark Red BG\x1b[0m  \x1b[48;5;9mRed BG\x1b[0m\n", True),
+            ("\n\x1b[1;37mTrue Colors (RGB):\x1b[0m\n", True),
+            ("  \x1b[38;2;255;0;0mRed\x1b[0m  \x1b[38;2;0;255;0mGreen\x1b[0m  \x1b[38;2;0;0;255mBlue\x1b[0m\n", True),
+            ("\n\x1b[1;37mText Styles:\x1b[0m\n", True),
+            ("  \x1b[1mBold\x1b[0m  \x1b[3mItalic\x1b[0m  \x1b[4mUnderline\x1b[0m  \x1b[9mStrikethrough\x1b[0m\n", True),
+            ("\n\x1b[1;37mCombined Styles:\x1b[0m\n", True),
+            ("  \x1b[1;31mBold Red\x1b[0m  \x1b[1;4;32mBold Underlined Green\x1b[0m\n", True),
+            ("  \x1b[1;33;44mBold Yellow on Blue\x1b[0m  \x1b[1;37;41mBold White on Red\x1b[0m\n", True),
         ]
         
         for text, parse_ansi in demo_texts:
@@ -685,36 +706,46 @@ class Py2GUI:
     def set_theme(self, theme_name: str) -> None:
         """Set theme"""
         def _set_theme():
-            if theme_name == "dark":
-                self.text_area.config(bg="black", fg="white", insertbackground="white")
-                self.text_area.tag_configure("default", foreground="white", background="black")
-            elif theme_name == "light":
-                self.text_area.config(bg="white", fg="black", insertbackground="black")
-                self.text_area.tag_configure("default", foreground="black", background="white")
-            elif theme_name == "matrix":
-                self.text_area.config(bg="black", fg="#00ff00", insertbackground="#00ff00")
-                self.text_area.tag_configure("default", foreground="#00ff00", background="black")
-            else:  # default
-                self.text_area.config(bg="black", fg="white", insertbackground="white")
-                self.text_area.tag_configure("default", foreground="white", background="black")
-            
-            self.text_area.see(tk.END)
+            try:
+                if theme_name == "dark":
+                    self.text_area.config(bg="black", fg="white", insertbackground="white")
+                    self.text_area.tag_configure("default", foreground="white", background="black")
+                elif theme_name == "light":
+                    self.text_area.config(bg="white", fg="black", insertbackground="black")
+                    self.text_area.tag_configure("default", foreground="black", background="white")
+                elif theme_name == "matrix":
+                    self.text_area.config(bg="black", fg="#00ff00", insertbackground="#00ff00")
+                    self.text_area.tag_configure("default", foreground="#00ff00", background="black")
+                else:  # Default theme
+                    self.text_area.config(bg="black", fg="white", insertbackground="white")
+                    self.text_area.tag_configure("default", foreground="white", background="black")
+                
+                self.text_area.see(tk.END)
+            except tk.TclError as e:
+                if self.running:
+                    self._safe_print(f"Tkinter error setting theme: {e}")
         
-        self.root.after(0, _set_theme)
+        if self.running:
+            self.root.after(0, _set_theme)
     
     def user_write(self, prompt: str = "Input:") -> Optional[str]:
-        """Thread-safe input dialog (opens in a new window)"""
+        """Thread-safe input dialog (opens in new window)"""
         if not self.running:
             return None
+        
         def _ask():
             try:
                 result = simpledialog.askstring("Input", prompt, parent=self.root)
                 self.input_queue.put(result)
             except tk.TclError:
                 self.input_queue.put(None)
+            except Exception as e:
+                self._safe_print(f"Error in user_write dialog: {e}")
+                self.input_queue.put(None)
+        
         self.root.after(0, _ask)
         
-        # Wait for input with timeout to check if still running
+        # Wait for input, but check if still running
         while self.running:
             try:
                 return self.input_queue.get(timeout=0.1)
@@ -723,40 +754,40 @@ class Py2GUI:
         return None
     
     def user_type_in(self, prompt: str = ">> ") -> Optional[str]:
-        """
-        Thread-safe terminal-style input (embedded in the main window)
-        User types in the terminal-like input field and presses Enter to send
-        """
+        """Thread-safe terminal-style input (embedded in main window)"""
         if not self.running:
             return None
             
         def _prepare_input():
             try:
-                # Update the prompt in the label
+                # Update prompt in label
                 self.input_label.config(text=prompt)
                 
-                # Clear any previous input
+                # Clear previous input
                 self.input_var.set("")
                 
-                # Focus the input field
+                # Focus input field
                 self.input_entry.focus_set()
                 
-                # Enable the input field
+                # Enable input field
                 self.input_entry.config(state=tk.NORMAL)
-            except tk.TclError:
-                pass
+            except tk.TclError as e:
+                if self.running:
+                    self._safe_print(f"Tkinter error preparing input: {e}")
         
-        # Clear the queue in case there are stale values
+        # Clear old values from queue
         while not self.type_in_queue.empty():
             try:
                 self.type_in_queue.get_nowait()
             except queue.Empty:
                 break
         
-        # Prepare the input field
+        # Prepare input field
         try:
             self.root.after(0, _prepare_input)
-        except tk.TclError:
+        except tk.TclError as e:
+            if self.running:
+                self._safe_print(f"Tkinter error scheduling input preparation: {e}")
             return None
         
         # Block and wait for user input
@@ -768,68 +799,100 @@ class Py2GUI:
         return None
     
     def _on_enter_pressed(self, event: Optional[tk.Event] = None) -> str:
-        """Handle Enter key press in the input field"""
+        """Handle Enter key press in input field"""
         self._on_send_input()
         return "break"  # Prevent default behavior
     
     def _on_send_input(self) -> None:
-        """Send the input from the terminal-style input field"""
-        user_input = self.input_var.get().strip()
-        
-        if user_input:
-            # Put the input in the queue
-            self.type_in_queue.put(user_input)
+        """Send input from terminal-style input field"""
+        try:
+            user_input = self.input_var.get().strip()
             
-            # Display the user input in the output area
-            self.text_area.config(state=tk.NORMAL)
-            self.text_area.insert(tk.END, f"{self.input_label.cget('text')}{user_input}\n", 'default')
-            self.text_area.config(state=tk.DISABLED)
-            self.text_area.see(tk.END)
-            
-            # Clear the input field
-            self.input_var.set("")
+            if user_input:
+                # Put input in queue
+                self.type_in_queue.put(user_input)
+                
+                # Display user input in output area
+                self.text_area.config(state=tk.NORMAL)
+                self.text_area.insert(tk.END, f"{self.input_label.cget('text')}{user_input}\n", 'default')
+                self.text_area.config(state=tk.DISABLED)
+                self.text_area.see(tk.END)
+                
+                # Clear input field
+                self.input_var.set("")
+        except tk.TclError as e:
+            if self.running:
+                self._safe_print(f"Tkinter error sending input: {e}")
+        except Exception as e:
+            if self.running:
+                self._safe_print(f"Error sending input: {e}")
     
     def _clear_input(self) -> None:
-        """Clear the terminal-style input field"""
-        self.input_var.set("")
-        self.input_entry.focus_set()
+        """Clear terminal-style input field"""
+        try:
+            self.input_var.set("")
+            self.input_entry.focus_set()
+        except tk.TclError as e:
+            if self.running:
+                self._safe_print(f"Tkinter error clearing input: {e}")
     
     def focus_input(self) -> None:
-        """Set focus to the terminal-style input field"""
-        self.input_entry.focus_set()
+        """Set focus to terminal-style input field"""
+        try:
+            self.input_entry.focus_set()
+        except tk.TclError as e:
+            if self.running:
+                self._safe_print(f"Tkinter error focusing input: {e}")
     
     def clear(self) -> None:
-        self.text_area.config(state=tk.NORMAL)
-        self.text_area.delete(1.0, tk.END)
-        self.text_area.config(state=tk.DISABLED)
+        """Clear output area"""
+        try:
+            self.text_area.config(state=tk.NORMAL)
+            self.text_area.delete(1.0, tk.END)
+            self.text_area.config(state=tk.DISABLED)
+        except tk.TclError as e:
+            if self.running:
+                self._safe_print(f"Tkinter error clearing text: {e}")
     
     def copy_text(self) -> None:
+        """Copy selected text"""
         try:
             selected = self.text_area.selection_get()
             self.root.clipboard_clear()
             self.root.clipboard_append(selected)
         except tk.TclError:
-            pass
+            pass  # No text selected
+        except Exception as e:
+            if self.running:
+                self._safe_print(f"Error copying text: {e}")
     
     def select_all(self) -> None:
-        self.text_area.config(state=tk.NORMAL)
-        self.text_area.tag_add(tk.SEL, "1.0", tk.END)
-        self.text_area.config(state=tk.DISABLED)
-        self.text_area.mark_set(tk.INSERT, "1.0")
-        self.text_area.see(tk.INSERT)
+        """Select all text"""
+        try:
+            self.text_area.config(state=tk.NORMAL)
+            self.text_area.tag_add(tk.SEL, "1.0", tk.END)
+            self.text_area.config(state=tk.DISABLED)
+            self.text_area.mark_set(tk.INSERT, "1.0")
+            self.text_area.see(tk.INSERT)
+        except tk.TclError as e:
+            if self.running:
+                self._safe_print(f"Tkinter error selecting all: {e}")
     
     def exit(self) -> None:
+        """Exit GUI"""
         self.running = False
         try:
             self.root.quit()
             self.root.destroy()
         except tk.TclError:
             pass  # Already destroyed
+        except Exception as e:
+            self._safe_print(f"Error exiting GUI: {e}")
     
     def run(self, func: Optional[Callable] = None, *args, **kwargs) -> Any:
         """
-        Run the GUI and optionally a worker function.
-        All Tkinter operations stay on main thread; your logic runs in a thread.
+        Run GUI and optional worker function
+        Tkinter operations stay in main thread; logic runs in another thread
         """
         result_queue = queue.Queue()
         
@@ -841,13 +904,17 @@ class Py2GUI:
                 except Exception as e:
                     self.display(f"Error: {e}\n{traceback.format_exc()}")
                     result_queue.put(e)
-            threading.Thread(target=worker, daemon=True).start()
+            thread = threading.Thread(target=worker, daemon=True)
+            thread.start()
         
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
             self.exit()
-            
+        except Exception as e:
+            self._safe_print(f"Error in mainloop: {e}")
+            self.exit()
+        
         if func:
             # Wait for function to complete, but make it interruptible
             while self.running:
@@ -859,17 +926,67 @@ class Py2GUI:
 
 
 # Global instance and helper functions
-_gui_instance = Py2GUI()
+_gui_instance = None
 
-display = _gui_instance.display
-display_colored = _gui_instance.display_colored
-display_paragraph = _gui_instance.display_paragraph
-user_write = _gui_instance.user_write
-user_type_in = _gui_instance.user_type_in
-clear = _gui_instance.clear
-copy_text = _gui_instance.copy_text
-select_all = _gui_instance.select_all
-exit_gui = _gui_instance.exit
-run = _gui_instance.run
-focus_input = _gui_instance.focus_input
-set_theme = _gui_instance.set_theme
+def _get_instance() -> Py2GUI:
+    """Get or create global instance"""
+    global _gui_instance
+    if _gui_instance is None or not _gui_instance.running:
+        _gui_instance = Py2GUI()
+    return _gui_instance
+
+def display(text: str, parse_ansi: bool = True, font_family: Optional[str] = None, 
+            font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
+    """Display text (auto newline)"""
+    _get_instance().display(text, parse_ansi, font_family, font_size, font_style)
+
+def display_colored(text: str, fg_color: Optional[str] = None, bg_color: Optional[str] = None, 
+                   bold: bool = False, underline: bool = False, italic: bool = False,
+                   strikethrough: bool = False, reverse: bool = False,
+                   font_family: Optional[str] = None, font_size: Optional[int] = None, 
+                   font_style: Optional[str] = None) -> None:
+    """Directly display colored text"""
+    _get_instance().display_colored(text, fg_color, bg_color, bold, underline, 
+                                   italic, strikethrough, reverse, font_family, 
+                                   font_size, font_style)
+
+def display_paragraph(text: str, parse_ansi: bool = True, font_family: Optional[str] = None, 
+                     font_size: Optional[int] = None, font_style: Optional[str] = None) -> None:
+    """Display paragraph (no auto newline)"""
+    _get_instance().display_paragraph(text, parse_ansi, font_family, font_size, font_style)
+
+def user_write(prompt: str = "Input:") -> Optional[str]:
+    """User input (dialog)"""
+    return _get_instance().user_write(prompt)
+
+def user_type_in(prompt: str = ">> ") -> Optional[str]:
+    """User input (terminal-style)"""
+    return _get_instance().user_type_in(prompt)
+
+def clear() -> None:
+    """Clear output"""
+    _get_instance().clear()
+
+def copy_text() -> None:
+    """Copy text"""
+    _get_instance().copy_text()
+
+def select_all() -> None:
+    """Select all"""
+    _get_instance().select_all()
+
+def exit_gui() -> None:
+    """Exit GUI"""
+    _get_instance().exit()
+
+def run(func: Optional[Callable] = None, *args, **kwargs) -> Any:
+    """Run GUI"""
+    return _get_instance().run(func, *args, **kwargs)
+
+def focus_input() -> None:
+    """Focus on input field"""
+    _get_instance().focus_input()
+
+def set_theme(theme_name: str) -> None:
+    """Set theme"""
+    _get_instance().set_theme(theme_name)
